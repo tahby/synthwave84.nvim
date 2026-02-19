@@ -3,6 +3,64 @@ local highlights = require("synthwave84.highlights")
 
 local M = {}
 
+local COLOR_KEYS = {
+  fg = true,
+  bg = true,
+  sp = true,
+  ctermfg = true,
+  ctermbg = true,
+}
+
+local function normalize_color(value)
+  if type(value) ~= "string" then
+    return value
+  end
+
+  if value == "NONE" or value == "none" then
+    return "NONE"
+  end
+
+  if value:sub(1, 1) ~= "#" then
+    return value
+  end
+
+  local hex = value:match("^#([0-9A-Fa-f]+)$")
+  if not hex then
+    return "NONE"
+  end
+
+  if #hex == 3 then
+    hex = hex:gsub(".", function(ch)
+      return ch .. ch
+    end)
+    return "#" .. hex
+  end
+
+  if #hex == 8 then
+    return "#" .. hex:sub(1, 6)
+  end
+
+  if #hex == 6 then
+    return "#" .. hex
+  end
+
+  return "NONE"
+end
+
+local function sanitize_spec(spec)
+  local normalized = {}
+
+  for key, value in pairs(spec) do
+    if COLOR_KEYS[key] then
+      normalized[key] = normalize_color(value)
+    else
+      normalized[key] = value
+    end
+  end
+
+  return normalized
+end
+
 M.config = {
   transparent = false,
   styles = {
@@ -53,7 +111,7 @@ function M.load()
   groups = vim.tbl_extend("force", groups, extra)
 
   for group, spec in pairs(groups) do
-    vim.api.nvim_set_hl(0, group, spec)
+    vim.api.nvim_set_hl(0, group, sanitize_spec(spec))
   end
 
   apply_terminal_colors(c)
