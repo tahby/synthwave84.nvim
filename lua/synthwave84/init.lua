@@ -11,7 +11,45 @@ local COLOR_KEYS = {
   ctermbg = true,
 }
 
-local function normalize_color(value)
+local function parse_hex(value)
+  local hex = value:match("^#([0-9A-Fa-f]+)$")
+  if not hex then
+    return nil
+  end
+
+  if #hex == 3 then
+    hex = hex:gsub(".", function(ch)
+      return ch .. ch
+    end)
+  end
+
+  if #hex == 6 then
+    local r = tonumber(hex:sub(1, 2), 16)
+    local g = tonumber(hex:sub(3, 4), 16)
+    local b = tonumber(hex:sub(5, 6), 16)
+    return r, g, b
+  end
+
+  if #hex == 8 then
+    local r = tonumber(hex:sub(1, 2), 16)
+    local g = tonumber(hex:sub(3, 4), 16)
+    local b = tonumber(hex:sub(5, 6), 16)
+    local a = tonumber(hex:sub(7, 8), 16)
+    return r, g, b, a
+  end
+
+  return nil
+end
+
+local function fmt_hex(r, g, b)
+  return string.format("#%02x%02x%02x", r, g, b)
+end
+
+local function blend_channel(fg, bg, alpha)
+  return math.floor(((fg * alpha) + (bg * (255 - alpha))) / 255 + 0.5)
+end
+
+local function normalize_color(value, blend_base)
   if type(value) ~= "string" then
     return value
   end
@@ -24,35 +62,48 @@ local function normalize_color(value)
     return value
   end
 
-  local hex = value:match("^#([0-9A-Fa-f]+)$")
-  if not hex then
+  local r, g, b, a = parse_hex(value)
+  if not r then
     return "NONE"
   end
 
-  if #hex == 3 then
-    hex = hex:gsub(".", function(ch)
-      return ch .. ch
-    end)
-    return "#" .. hex
+  if not a then
+    return fmt_hex(r, g, b)
   end
 
-  if #hex == 8 then
-    return "#" .. hex:sub(1, 6)
+  local br, bg, bb = parse_hex(blend_base or "#000000")
+  if not br then
+    br, bg, bb = 0, 0, 0
   end
 
-  if #hex == 6 then
-    return "#" .. hex
-  end
+  local out_r = blend_channel(r, br, a)
+  local out_g = blend_channel(g, bg, a)
+  local out_b = blend_channel(b, bb, a)
 
-  return "NONE"
+  return fmt_hex(out_r, out_g, out_b)
 end
 
-local function sanitize_spec(spec)
+local function sanitize_spec(spec, default_bg)
   local normalized = {}
+  local resolved_bg = default_bg
+
+  if type(spec.bg) == "string" then
+    local bg = normalize_color(spec.bg, default_bg)
+    if bg ~= "NONE" then
+      resolved_bg = bg
+    end
+  end
 
   for key, value in pairs(spec) do
     if COLOR_KEYS[key] then
-      normalized[key] = normalize_color(value)
+      if key == "bg" or key == "ctermbg" then
+        normalized[key] = normalize_color(value, default_bg)
+        if key == "bg" and normalized[key] ~= "NONE" then
+          resolved_bg = normalized[key]
+        end
+      else
+        normalized[key] = normalize_color(value, resolved_bg)
+      end
     else
       normalized[key] = value
     end
@@ -111,7 +162,7 @@ function M.load()
   groups = vim.tbl_extend("force", groups, extra)
 
   for group, spec in pairs(groups) do
-    vim.api.nvim_set_hl(0, group, sanitize_spec(spec))
+    vim.api.nvim_set_hl(0, group, sanitize_spec(spec, c.bg))
   end
 
   apply_terminal_colors(c)
